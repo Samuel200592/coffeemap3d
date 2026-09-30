@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reporte de fertilización – CoffeeMap3D</title>
+<style>
+  :root {
+    --marca: #5D4037;
+    --marca-claro: #EFEBE9;
+    --texto: #333333;
+    --suave: #666666;
+    --borde: #D7CCC8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: #F5F5F5;
+    color: var(--texto);
+    font-family: Roboto, Arial, sans-serif;
+    font-size: 12px;
+  }
+  .barra {
+    position: sticky; top: 0; z-index: 5;
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+    padding: 10px 16px;
+    background: var(--marca); color: #fff;
+  }
+  .barra span { flex: 1 1 240px; }
+  .barra button {
+    border: 0; border-radius: 4px; padding: 7px 12px;
+    background: #fff; color: var(--marca); font-weight: bold; cursor: pointer;
+  }
+  #reporte {
+    width: 190mm; max-width: 100%;
+    margin: 16px auto; padding: 10mm;
+    background: #fff;
+  }
+  header.cab {
+    display: flex; justify-content: space-between; align-items: flex-end;
+    border-bottom: 3px solid var(--marca); padding-bottom: 6px; margin-bottom: 10px;
+  }
+  header.cab h1 { margin: 0; font-size: 22px; color: var(--marca); }
+  header.cab p { margin: 2px 0 0; color: var(--suave); }
+  header.cab .fecha { text-align: right; color: var(--suave); }
+  h2 {
+    font-size: 14px; color: var(--marca);
+    margin: 14px 0 6px; padding-bottom: 3px;
+    border-bottom: 1px solid var(--borde);
+  }
+  .ficha {
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 2px 16px;
+  }
+  .ficha div { padding: 3px 0; border-bottom: 1px dotted var(--borde); }
+  .ficha b { color: var(--marca); display: inline-block; min-width: 150px; }
+  table { width: 100%; border-collapse: collapse; margin: 4px 0; }
+  th, td { padding: 4px 6px; border: 1px solid var(--borde); }
+  th { background: var(--marca-claro); color: var(--marca); text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  td { text-align: right; }
+  tbody tr:nth-child(even) td { background: #FAFAFA; }
+  tr.destacado td { font-weight: bold; background: #FFF8E1; }
+  .nota { color: var(--suave); font-size: 11px; margin: 4px 0; }
+  .texto { white-space: pre-wrap; line-height: 1.5; }
+  .mapas { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .mapas.tres { grid-template-columns: repeat(3, 1fr); }
+  .mapa { border: 1px solid var(--borde); padding: 6px; }
+  .mapa b { display: block; margin-bottom: 4px; }
+  .mapa img { width: 100%; height: 150px; object-fit: contain; background: #fafafa; display: block; }
+  .mapa .sin { height: 150px; display: flex; align-items: center; justify-content: center; color: var(--suave); background: #fafafa; }
+  .escala { height: 8px; margin-top: 4px; }
+  .rango { display: flex; justify-content: space-between; color: var(--suave); font-size: 11px; }
+  footer { margin-top: 14px; padding-top: 6px; border-top: 1px solid var(--borde); color: var(--suave); font-size: 10px; }
+  .bloque, .mapa, tr { page-break-inside: avoid; break-inside: avoid; }
+  .salto { page-break-before: always; break-before: page; }
+  body.generando { background: #fff; }
+  body.generando #reporte { margin: 0; }
+  #vacio { max-width: 520px; margin: 60px auto; padding: 24px; background: #fff; text-align: center; }
+  @media (max-width: 600px) {
+    #reporte { padding: 12px; }
+    .ficha, .mapas, .mapas.tres { grid-template-columns: 1fr; }
+    header.cab { flex-direction: column; align-items: flex-start; }
+    header.cab .fecha { text-align: left; }
+  }
+  @media print {
+    body { background: #fff; }
+    .barra { display: none; }
+    #reporte { margin: 0; width: auto; padding: 0; }
+  }
+</style>
+</head>
+<body>
+
+<div class="barra" data-html2canvas-ignore="true">
+  <span id="estado">Preparando reporte…</span>
+  <button id="btnPdf" type="button">Descargar PDF</button>
+  <button id="btnHtml" type="button">Descargar HTML</button>
+  <button id="btnImprimir" type="button">Imprimir</button>
+</div>
+
+<div id="reporte"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+<script>
+(function () {
+
+  // --------------------------------------------------------------------------
+  // Datos: vienen en el fragmento de la URL (#...) desde la app de GEE.
+  // Con ?demo se muestra un reporte de ejemplo.
+  // --------------------------------------------------------------------------
+  function leerDatos() {
+    var h = window.location.hash.slice(1);
+    if (h) {
+      try { return JSON.parse(decodeURIComponent(h)); }
+      catch (e) { return null; }
+    }
+    if (/[?&]demo\b/.test(window.location.search)) { return DEMO; }
+    return null;
+  }
+
+  var DEMO = {
+    fecha: '2026-09-29', productor: 'PRODUCTOR DE EJEMPLO', dni: '00000000',
+    area_ha: 1.25, perimetro_m: 480.3, profundidad: '0–30 cm', rendimiento: 2,
+    estadisticas: {
+      encabezados: ['Parámetro', 'Mínimo', 'Promedio', 'Máximo'],
+      filas: [['pH', '4.21', '4.47', '4.80'], ['Materia orgánica (%)', '1.80', '2.11', '2.40'],
+              ['Fósforo', '9.10', '11.74', '14.20'], ['K intercambiable', '0.40', '0.60', '0.75']]
+    },
+    porProfundidad: {
+      encabezados: ['Profundidad', 'N', 'P₂O₅', 'K₂O', 'CaO', 'MgO', 'S'],
+      filas: [['0–30 cm', '44.2', '134.0', '0.0', '0.0', '0.0', '23.3'],
+              ['30–60 cm', '51.0', '140.2', '0.0', '0.0', '0.0', '23.3'],
+              ['60–90 cm', '60.3', '142.8', '0.0', '0.0', '0.0', '23.3'],
+              ['Promedio (0–60 cm)', '47.6', '137.1', '0.0', '0.0', '0.0', '23.3'],
+              ['Promedio (0–90 cm)', '51.8', '139.0', '0.0', '0.0', '0.0', '23.3']]
+    },
+    balance: {
+      encabezados: ['Nutriente', 'Oferta', 'Demanda', 'Dosis', 'Requerim.', 'A aplicar'],
+      filas: [['N', '82.9', '100.0', '28.5', '44.2', '44.2'], ['P₂O₅', '24.2', '45.8', '86.4', '134.0', '134.0'],
+              ['K₂O', '508.8', '120.5', '-554.7', '-859.8', '0.0'], ['CaO', '1857.5', '14.0', '-2304.4', '-3571.8', '0.0'],
+              ['MgO', '404.4', '16.6', '-484.8', '-751.4', '0.0'], ['S', '0.0', '12.0', '15.0', '23.3', '23.3']]
+    },
+    texto: 'Requerimiento a aplicar (promedio del área, forma fertilizante):\n   N: 44.2 kg/ha  |  P₂O₅: 134.0 kg/ha  |  K₂O: 0.0 kg/ha\n\n• Cal (VNRT 100 %): 320 kg/ha para llevar la saturación de bases a 70 %.',
+    mapas: [], paletas: {}
+  };
+
+  // --------------------------------------------------------------------------
+  // Utilidades
+  // --------------------------------------------------------------------------
+  function esc(v) {
+    return String(v === null || v === undefined ? '—' : v)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function tabla(t, claveDestacada) {
+    if (!t || !t.filas || !t.filas.length) { return '<p class="nota">Sin datos.</p>'; }
+    var h = '<table><thead><tr>' + t.encabezados.map(function (e) { return '<th>' + esc(e) + '</th>'; }).join('') +
+            '</tr></thead><tbody>';
+    t.filas.forEach(function (f) {
+      var cls = (claveDestacada && f[0] === claveDestacada) ? ' class="destacado"' : '';
+      h += '<tr' + cls + '>' + f.map(function (c) { return '<td>' + esc(c) + '</td>'; }).join('') + '</tr>';
+    });
+    return h + '</tbody></table>';
+  }
+
+  function gradiente(paleta) {
+    if (!paleta || !paleta.length) { return '#ccc'; }
+    return 'linear-gradient(to right,' + paleta.map(function (c) { return '#' + c; }).join(',') + ')';
+  }
+
+  function num(v, d) {
+    return (v === null || v === undefined || isNaN(v)) ? '—' : Number(v).toFixed(d);
+  }
+
+  function mapas(lista, clase) {
+    if (!lista.length) { return ''; }
+    return '<div class="mapas ' + (clase || '') + '">' + lista.map(function (m) {
+      var img = m.url
+        ? '<img crossorigin="anonymous" src="' + esc(m.url) + '" alt="' + esc(m.titulo) + '">'
+        : '<div class="sin">Sin datos</div>';
+      return '<div class="mapa"><b>' + esc(m.titulo) + '</b>' + img +
+             '<div class="escala" style="background:' + gradiente(m.paleta) + '"></div>' +
+             '<div class="rango"><span>' + num(m.min, 2) + '</span><span>' +
+             num((m.min + m.max) / 2, 2) + '</span><span>' + num(m.max, 2) +
+             (m.unidades ? ' ' + esc(m.unidades) : '') + '</span></div></div>';
+    }).join('') + '</div>';
+  }
+
+  // --------------------------------------------------------------------------
+  // Construcción del reporte
+  // --------------------------------------------------------------------------
+  function construir(d) {
+    var suelo = (d.mapas || []).filter(function (m) { return m.grupo === 'suelo'; });
+    var dosis = (d.mapas || []).filter(function (m) { return m.grupo === 'dosis'; });
+
+    var h = '';
+    h += '<header class="cab"><div><h1>CoffeeMap3D</h1>' +
+         '<p>Reporte de fertilización – café en producción</p></div>' +
+         '<div class="fecha">Fecha de emisión<br><b>' + esc(d.fecha) + '</b></div></header>';
+
+    h += '<section class="bloque"><h2>Información de la parcela</h2><div class="ficha">' +
+         '<div><b>Productor</b>' + esc(d.productor) + '</div>' +
+         '<div><b>DNI</b>' + esc(d.dni) + '</div>' +
+         '<div><b>Área</b>' + num(d.area_ha, 2) + ' ha</div>' +
+         '<div><b>Perímetro</b>' + num(d.perimetro_m, 1) + ' m</div>' +
+         '<div><b>Profundidad</b>' + esc(d.profundidad) + '</div>' +
+         '<div><b>Rendimiento esperado</b>' + esc(d.rendimiento) + ' t/ha</div>' +
+         '</div></section>';
+
+    h += '<section class="bloque"><h2>Requerimiento a aplicar por profundidad (kg/ha, forma fertilizante)</h2>' +
+         tabla(d.porProfundidad, d.profundidad) + '</section>';
+
+    h += '<section class="bloque"><h2>Balance de nutrientes – ' + esc(d.profundidad) + ' (kg/ha)</h2>' +
+         tabla(d.balance) +
+         '<p class="nota">Oferta = suministro del suelo × FC × disponibilidad. Dosis = (demanda − oferta) ÷ eficiencia. ' +
+         'Requerimiento = dosis × 1.55 (fruto + biomasa foliar). Valores negativos: el suelo cubre la demanda y la cantidad a aplicar es 0.</p>' +
+         '</section>';
+
+    h += '<section class="bloque"><h2>Recomendación</h2><div class="texto">' + esc(d.texto) + '</div></section>';
+
+    if (dosis.length) {
+      h += '<section class="bloque"><h2>Distribución espacial del requerimiento – ' + esc(d.profundidad) + '</h2>' +
+           mapas(dosis, 'tres') + '</section>';
+    }
+
+    h += '<section class="salto bloque"><h2>Propiedades del suelo – ' + esc(d.profundidad) + '</h2>' +
+         tabla(d.estadisticas) + '</section>';
+
+    if (suelo.length) {
+      h += '<section class="bloque"><h2>Distribución espacial de N, P, K y pH</h2>' + mapas(suelo) + '</section>';
+    }
+
+    h += '<footer>Generado con CoffeeMap3D a partir de mapas digitales de suelo. ' +
+         'Los valores son promedios estimados para el área seleccionada; se recomienda validarlos con análisis de laboratorio.</footer>';
+
+    return h;
+  }
+
+  // --------------------------------------------------------------------------
+  // Descargas
+  // --------------------------------------------------------------------------
+  var datos = leerDatos();
+  var estado = document.getElementById('estado');
+  var cont = document.getElementById('reporte');
+
+  function nombreArchivo(ext) {
+    var p = (datos && datos.productor ? datos.productor : 'parcela')
+      .normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '');
+    return 'Reporte_' + (p || 'parcela') + '_' + (datos && datos.fecha ? datos.fecha : 'fecha') + '.' + ext;
+  }
+
+  function esperarImagenes(ms) {
+    var imgs = Array.prototype.slice.call(cont.querySelectorAll('img'));
+    return Promise.race([
+      Promise.all(imgs.map(function (im) {
+        return new Promise(function (ok) {
+          if (im.complete) { return ok(); }
+          im.onload = ok;
+          im.onerror = function () {
+            // Reintento sin CORS: la imagen se ve en pantalla aunque
+            // el servidor no permita incrustarla en el PDF.
+            if (im.hasAttribute('crossorigin')) {
+              im.removeAttribute('crossorigin');
+              var src = im.src; im.src = ''; im.src = src;
+              return;
+            }
+            var d = document.createElement('div');
+            d.className = 'sin'; d.textContent = 'Imagen no disponible';
+            im.replaceWith(d); ok();
+          };
+        });
+      })),
+      new Promise(function (ok) { setTimeout(ok, ms); })
+    ]);
+  }
+
+  function descargarPdf() {
+    if (typeof html2pdf === 'undefined') {
+      estado.textContent = 'No se pudo cargar el generador de PDF. Use "Imprimir" → Guardar como PDF.';
+      return Promise.resolve();
+    }
+    estado.textContent = 'Generando PDF…';
+    document.body.classList.add('generando');
+    window.scrollTo(0, 0);
+    return html2pdf().set({
+      margin: [8, 8, 10, 8],
+      filename: nombreArchivo('pdf'),
+      image: {type: 'jpeg', quality: 0.95},
+      html2canvas: {scale: 2, useCORS: true, backgroundColor: '#ffffff'},
+      jsPDF: {unit: 'mm', format: 'a4', orientation: 'portrait'},
+      pagebreak: {mode: ['css', 'legacy'], avoid: ['.mapa', 'tr', '.ficha']}
+    }).from(cont).save().then(function () {
+      document.body.classList.remove('generando');
+      estado.textContent = 'PDF descargado: ' + nombreArchivo('pdf');
+    }).catch(function (e) {
+      document.body.classList.remove('generando');
+      estado.textContent = 'Error al generar el PDF (' + e + '). Use "Imprimir" → Guardar como PDF.';
+    });
+  }
+
+  // HTML autónomo: intenta incrustar las miniaturas para que no expiren
+  function aDataUrl(img) {
+    try {
+      var c = document.createElement('canvas');
+      c.width = img.naturalWidth; c.height = img.naturalHeight;
+      c.getContext('2d').drawImage(img, 0, 0);
+      return c.toDataURL('image/png');
+    } catch (e) { return null; }
+  }
+
+  function descargarHtml() {
+    var copia = cont.cloneNode(true);
+    var orig = cont.querySelectorAll('img');
+    copia.querySelectorAll('img').forEach(function (im, i) {
+      var du = orig[i] && orig[i].naturalWidth ? aDataUrl(orig[i]) : null;
+      if (du) { im.setAttribute('src', du); }
+      im.removeAttribute('crossorigin');
+    });
+    var css = document.querySelector('style').outerHTML;
+    var html = '<!doctype html><html lang="es"><head><meta charset="utf-8">' +
+               '<meta name="viewport" content="width=device-width, initial-scale=1">' +
+               '<title>' + nombreArchivo('html') + '</title>' + css + '</head><body>' +
+               '<div id="reporte">' + copia.innerHTML + '</div></body></html>';
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([html], {type: 'text/html'}));
+    a.download = nombreArchivo('html');
+    document.body.appendChild(a); a.click(); a.remove();
+  }
+
+  document.getElementById('btnPdf').onclick = descargarPdf;
+  document.getElementById('btnHtml').onclick = descargarHtml;
+  document.getElementById('btnImprimir').onclick = function () { window.print(); };
+
+  if (!datos) {
+    cont.id = 'vacio';
+    cont.innerHTML = '<h2>Sin datos de reporte</h2><p>Abra este reporte desde la app CoffeeMap3D ' +
+                     'usando el enlace "Descargar reporte PDF".</p>';
+    estado.textContent = 'Sin datos';
+    return;
+  }
+
+  cont.innerHTML = construir(datos);
+  document.title = nombreArchivo('pdf').replace(/\.pdf$/, '');
+
+  // Descarga automática al abrir
+  estado.textContent = 'Cargando mapas…';
+  esperarImagenes(15000).then(descargarPdf);
+
+})();
+</script>
+</body>
+</html>
